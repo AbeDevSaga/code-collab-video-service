@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
 const dotenv = require('dotenv');
+//dbUser:#1430Aman@cluster0.l7eba.mongodb.net/code-collab-auth?retryWrites=true&w=majority
+
 
 dotenv.config();
 // const { seedAdminUser } = require("../scripts/seed_admin");
