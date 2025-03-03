@@ -14,6 +14,12 @@ app.use(cors());
 connectDB();
 seedServices();
 
+// app.use((req, res, next) => {
+//     console.log('Request Headers:', req.headers);
+//     next();
+// });
+
+
 // Routes
 app.use('/api/services', require('./routes/serviceRoutes'));
 

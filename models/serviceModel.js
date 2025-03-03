@@ -5,17 +5,17 @@ const ServiceSchema = new mongoose.Schema({
         type: String,
         required: true,
         unique: true,
-        enum: [
-            'Authentication',
-            'Chat',
-            'Video Call',
-            'File Management',
-            'Live Editor',
-            'Project Manager',
-            'Docker',
-            'CLI',
-            'Version Control'
-        ],
+        // enum: [
+        //     'Authentication',
+        //     'Chat',
+        //     'Video Call',
+        //     'File Management',
+        //     'Live Editor',
+        //     'Project Manager',
+        //     'Docker',
+        //     'CLI',
+        //     'Version Control'
+        // ],
     },
     description: {
         type: String,
@@ -23,7 +23,7 @@ const ServiceSchema = new mongoose.Schema({
     },
     category: {
         type: String,
-        enum: ['Communication', 'Collaboration', 'Development', 'Management'],
+        // enum: ['Communication', 'Collaboration', 'Development', 'Management'],
         required: true,
     },
     features: {
