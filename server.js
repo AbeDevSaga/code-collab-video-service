@@ -12,9 +12,9 @@ const PORT = process.env.PORT || 5000;
 app.use(express.json());
 // app.use(cors());
 app.use(cors({
-    origin: 'http://localhost:3000', // Allow frontend access
-    methods: 'GET,POST,PUT,DELETE', // Allowed methods
-    allowedHeaders: 'Content-Type,Authorization', // Allowed headers
+    origin: '*', 
+    methods: 'GET,POST,PUT,DELETE', 
+    allowedHeaders: 'Content-Type,Authorization',
     credentials: true
 }));
 connectDB();
