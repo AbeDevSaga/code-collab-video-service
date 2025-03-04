@@ -4,8 +4,8 @@ const Service = require('../models/serviceModel');
 // Create a new service
 const createService = async (req, res) => {
     try {
-        const { name, description, price, duration, type } = req.body;
-        const newService = new Service({ name, description, price, duration, type });
+        const { name, description, category, features, price, duration, type, status, createdAt } = req.body;
+        const newService = new Service({ name, description, category, features, price, duration, type, status, createdAt });
         await newService.save();
         res.status(201).json({ message: 'Service created successfully', service: newService });
     } catch (error) {
