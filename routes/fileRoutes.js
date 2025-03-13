@@ -1,5 +1,10 @@
 const express = require("express");
 const {
+  isAuthenticated,
+  isAdmin,
+  hasPermission,
+} = require("../middlewares/authMiddleware");
+const {
   uploadFile,
   downloadFile,
   shareFile,
@@ -9,11 +14,6 @@ const {
   getFileDetails,
   restoreFile,
 } = require("../controllers/fileController");
-const {
-  isAuthenticated,
-  isAdmin,
-  hasPermission,
-} = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 

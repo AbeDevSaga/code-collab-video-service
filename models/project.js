@@ -2,7 +2,6 @@ const mongoose = require("mongoose");
 
 const ProjectSchema = new mongoose.Schema(
   {
-    // Basic project information
     name: { type: String, required: true }, // Name of the project
     description: { type: String }, // Description of the project
     status: {
