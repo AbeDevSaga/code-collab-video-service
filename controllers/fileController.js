@@ -22,7 +22,7 @@ const hasPermission = (file, userId, requiredRole) => {
 };
 
 // 1. Upload a file
-const uploadFile = async (req, res) => {
+export const uploadFile = async (req, res) => {
   try {
     const { name, type, projectId, organizationId } = req.body;
     const createdBy = req.user._id;
@@ -67,7 +67,7 @@ const uploadFile = async (req, res) => {
 };
 
 // 2. Download a file
-const downloadFile = async (req, res) => {
+export const downloadFile = async (req, res) => {
   try {
     const fileId = req.params.id;
     const userId = req.user._id;
@@ -99,7 +99,7 @@ const downloadFile = async (req, res) => {
 };
 
 // 3. Share a file with another user
-const shareFile = async (req, res) => {
+export const shareFile = async (req, res) => {
   try {
     const { fileId, userId, role } = req.body;
     const sharedBy = req.user._id;
@@ -136,7 +136,7 @@ const shareFile = async (req, res) => {
 };
 
 // 4. Update a file
-const updateFile = async (req, res) => {
+export const updateFile = async (req, res) => {
   try {
     const fileId = req.params.id;
     const userId = req.user._id;
@@ -186,7 +186,7 @@ const updateFile = async (req, res) => {
 };
 
 // 5. Delete a file (soft delete)
-const deleteFile = async (req, res) => {
+export const deleteFile = async (req, res) => {
   try {
     const fileId = req.params.id;
     const userId = req.user._id;
@@ -221,7 +221,7 @@ const deleteFile = async (req, res) => {
 };
 
 // 6. Add a comment to a file
-const addComment = async (req, res) => {
+export const addComment = async (req, res) => {
   try {
     const fileId = req.params.id;
     const userId = req.user._id;
@@ -246,7 +246,7 @@ const addComment = async (req, res) => {
 };
 
 // 7. Get file details (including comments, history, etc.)
-const getFileDetails = async (req, res) => {
+export const getFileDetails = async (req, res) => {
   try {
     const fileId = req.params.id;
     const userId = req.user._id;
@@ -275,7 +275,7 @@ const getFileDetails = async (req, res) => {
 };
 
 // 8. Restore a soft-deleted file
-const restoreFile = async (req, res) => {
+export const restoreFile = async (req, res) => {
   try {
     const fileId = req.params.id;
     const userId = req.user._id;
@@ -304,16 +304,4 @@ const restoreFile = async (req, res) => {
       .status(500)
       .json({ message: "Error restoring file", error: error.message });
   }
-};
-
-// Export all controller functions
-export default {
-  uploadFile,
-  downloadFile,
-  shareFile,
-  updateFile,
-  deleteFile,
-  addComment,
-  getFileDetails,
-  restoreFile,
 };
