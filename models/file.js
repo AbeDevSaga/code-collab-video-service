@@ -4,7 +4,7 @@ const FileSchema = new mongoose.Schema(
   {
     // Basic file information
     name: { type: String, required: true }, // Name of the file
-    type: { type: String, enum: ["code", "document", "image", "other"], required: true }, // Type of file (code, document, image, other)
+    type: { type: String, enum: ["file", "folder"], required:true }, // Type of the item (file or folder)
     path: { type: String, required: true }, // Path to the file in storage (e.g., S3 or local storage)
     size: { type: Number, default: 0 }, // Size of the file in bytes
     extension: { type: String }, // File extension (e.g., .js, .py, .txt)
@@ -12,7 +12,7 @@ const FileSchema = new mongoose.Schema(
     // Ownership and associations
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true }, // User who created the file
     project: { type: mongoose.Schema.Types.ObjectId, ref: "Project", default: null }, // Project the file belongs to
-    organization: { type: mongoose.Schema.Types.ObjectId, ref: "Organization", required: true }, // Organization the file belongs to
+    organization: { type: mongoose.Schema.Types.ObjectId, ref: "Organization" }, // Organization the file belongs to
 
     // Shared users (array of users with access to the file)
     sharedWith: [
@@ -41,6 +41,7 @@ const FileSchema = new mongoose.Schema(
     created_at: { type: Date, default: Date.now }, // When the file was created
     updated_at: { type: Date, default: Date.now }, // When the file was last updated
     isDeleted: { type: Boolean, default: false }, // Soft delete flag
+    deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // User who deleted the file (if applicable)
     deletedAt: { type: Date, default: null }, // When the file was deleted (if applicable)
 
     // File history (optional, for tracking changes)

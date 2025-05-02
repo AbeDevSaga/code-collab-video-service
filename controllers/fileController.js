@@ -1,307 +1,427 @@
-import File from "../models/file.js";
-import Organization from "../models/organization.js";
-import Project from "../models/project.js";
-import User from "../models/user.js";
-import {
-  uploadToBackblaze,
-  downloadFromBackblaze,
-  deleteFromBackblaze,
-} from "../helpers/backblaze.js";
-import fs from "fs/promises"; // Use the promise-based fs module
-import path from "path";
-import { fileURLToPath } from "url";
+const File = require("../models/file");
+const fs = require("fs");
+const path = require("path");
+const mime = require("mime-types"); // You'll need to install this: npm install mime-types
+const { isTextFile } = require("../helpers/isTextFile");
 
-// Helper to get __dirname in ES Modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Base directory for all user files
+const BASE_DIR = path.join(
+  "C:",
+  "Users",
+  "abbed",
+  "Desktop",
+  "Code-Collab-User-Files"
+);
+if (!fs.existsSync(BASE_DIR)) {
+  fs.mkdirSync(BASE_DIR, { recursive: true });
+}
 
-// Helper function to check if a user has permission to perform an action
-const hasPermission = (file, userId, requiredRole) => {
-  const sharedUser = file.sharedWith.find((user) => user.user.equals(userId));
-  return sharedUser && sharedUser.role === requiredRole;
+// Helper function to get user directory
+const getUserDir = (userId) => {
+  return path.join(BASE_DIR, userId);
 };
 
-// 1. Upload a file
-export const uploadFile = async (req, res) => {
+// Create or update file content immediately
+const saveFileContent = (filePath, content) => {
+  fs.writeFileSync(filePath, content, "utf8");
+};
+
+const createFile = async (req, res) => {
+  console.log("createFile");
   try {
-    const { name, type, projectId, organizationId } = req.body;
-    const createdBy = req.user._id;
+    const { name, type, path: filePathInput, project, organization, content } = req.body;
+    const createdBy = req.user.id.toString();
 
-    // Validate project and organization
-    const project = await Project.findById(projectId);
-    const organization = await Organization.findById(organizationId);
-
-    if (!project || !organization) {
-      return res
-        .status(404)
-        .json({ message: "Project or Organization not found" });
+    console.log("Request body:", req.body);
+    
+    // Validate required fields
+    if (!name || !type || filePathInput === undefined) {
+      return res.status(400).json({ error: "Name, type, and path are required" });
     }
 
-    // Upload the file to Backblaze B2
-    const b2Response = await uploadToBackblaze(
-      req.file.path,
-      req.file.originalname
-    );
+    // Create user directory if it doesn't exist
+    const userDir = getUserDir(createdBy);
+    if (!fs.existsSync(userDir)) {
+      fs.mkdirSync(userDir, { recursive: true });
+    }
 
-    // Create the file
+    // Normalize and clean the path
+    let normalizedPath = filePathInput;
+    
+    // Handle path separators
+    normalizedPath = normalizedPath.replace(/\\/g, '/'); // Convert all to forward slashes
+    normalizedPath = normalizedPath.replace(/^\/|\/$/g, ''); // Remove leading/trailing slashes
+
+    console.log("Normalized path:", normalizedPath);
+    
+    // Split path into segments
+    const pathSegments = normalizedPath.split('/').filter(segment => segment.trim() !== '');
+    console.log("Path segments:", pathSegments);
+
+    // Build the full path starting from user directory
+    let currentPath = userDir;
+    
+    // Create all intermediate directories if they don't exist
+    for (const segment of pathSegments) {
+      currentPath = path.join(currentPath, segment);
+      console.log("Creating intermediate path:", currentPath);
+      
+      if (!fs.existsSync(currentPath)) {
+        fs.mkdirSync(currentPath);
+      }
+    }
+
+    let fullPath;
+    let size = 0;
+    let extension = "";
+
+    if (type === "file") {
+      // Handle file creation
+      extension = path.extname(name).toLowerCase();
+      fullPath = path.join(currentPath, name);
+      console.log("Creating file at:", fullPath);
+      
+      // Create file with content if provided
+      if (content !== undefined) {
+        saveFileContent(fullPath, content);
+        size = fs.statSync(fullPath).size;
+      } else {
+        fs.writeFileSync(fullPath, '');
+      }
+    } else if (type === "folder") {
+      // Handle folder creation
+      fullPath = path.join(currentPath, name);
+      console.log("Creating folder at:", fullPath);
+      
+      if (!fs.existsSync(fullPath)) {
+        fs.mkdirSync(fullPath);
+      } else {
+        return res.status(400).json({ error: "Folder already exists" });
+      }
+    } else {
+      return res.status(400).json({ error: "Invalid file type" });
+    }
+
+    const relativePath = path.relative(BASE_DIR, fullPath);
+    console.log("Relative path to store in DB:", relativePath);
+
     const file = new File({
-      name,
+      name: name,
       type,
-      path: b2Response.fileName, // Store the Backblaze B2 file name
-      size: req.file.size,
-      extension: req.file.originalname.split(".").pop(),
+      path: relativePath,
+      size,
+      extension,
       createdBy,
-      project: projectId,
-      organization: organizationId,
-      sharedWith: [{ user: createdBy, role: "admin" }], // Creator has admin access
+      ...(project && { project }),
+      ...(organization && { organization }),
+      ...(type === "file" && { content: content || '' })
     });
 
     await file.save();
-
-    res.status(201).json({ message: "File uploaded successfully", file });
+    res.status(201).json({ message: "File created successfully", file });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error uploading file", error: error.message });
-  }
-};
-
-// 2. Download a file
-export const downloadFile = async (req, res) => {
-  try {
-    const fileId = req.params.id;
-    const userId = req.user._id;
-
-    const file = await File.findById(fileId);
-
-    if (!file) {
-      return res.status(404).json({ message: "File not found" });
-    }
-
-    // Check if the user has permission to download the file
-    if (!hasPermission(file, userId, "viewer")) {
-      return res
-        .status(403)
-        .json({ message: "You do not have permission to download this file" });
-    }
-
-    // Download the file from Backblaze B2
-    const fileStream = await downloadFromBackblaze(file.path);
-
-    // Send the file for download
-    res.setHeader("Content-Disposition", `attachment; filename=${file.name}`);
-    fileStream.pipe(res);
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error downloading file", error: error.message });
-  }
-};
-
-// 3. Share a file with another user
-export const shareFile = async (req, res) => {
-  try {
-    const { fileId, userId, role } = req.body;
-    const sharedBy = req.user._id;
-
-    const file = await File.findById(fileId);
-    const userToShareWith = await User.findById(userId);
-
-    if (!file || !userToShareWith) {
-      return res.status(404).json({ message: "File or User not found" });
-    }
-
-    // Check if the user has permission to share the file
-    if (!hasPermission(file, sharedBy, "admin")) {
-      return res
-        .status(403)
-        .json({ message: "You do not have permission to share this file" });
-    }
-
-    // Add the user to the sharedWith array
-    file.sharedWith.push({
-      user: userId,
-      role,
-      addedAt: Date.now(),
-      addedBy: sharedBy,
+    console.error("Error creating file:", error);
+    res.status(500).json({ 
+      error: "File creation failed", 
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
-    await file.save();
-
-    res.status(200).json({ message: "File shared successfully", file });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error sharing file", error: error.message });
   }
 };
-
-// 4. Update a file
-export const updateFile = async (req, res) => {
+const getEnhancedFileStructure = async (req, res) => {
+  console.log("getEnhancedFileStructure");
   try {
-    const fileId = req.params.id;
-    const userId = req.user._id;
-    const { name, type, content } = req.body;
+    const createdBy = req.user.id.toString();
+    const userDir = getUserDir(createdBy);
 
-    const file = await File.findById(fileId);
-
-    if (!file) {
-      return res.status(404).json({ message: "File not found" });
+    if (!fs.existsSync(userDir)) {
+      return res.status(200).json([]);
     }
 
-    // Check if the user has permission to update the file
-    if (!hasPermission(file, userId, "editor")) {
-      return res
-        .status(403)
-        .json({ message: "You do not have permission to update this file" });
-    }
+    const buildTree = (dir, relativeBase) => {
+      const result = [];
+      const items = fs.readdirSync(dir, { withFileTypes: true });
 
-    // Upload the updated file to Backblaze B2
-    const updatedFilePath = path.join(__dirname, `../temp/${file.name}`);
-    await fs.writeFile(updatedFilePath, content); // Use fs.promises.writeFile
+      for (const item of items) {
+        const fullPath = path.join(dir, item.name);
+        const relativePath = path.relative(relativeBase, fullPath);
 
-    const b2Response = await uploadToBackblaze(updatedFilePath, file.name);
+        const node = {
+          id: relativePath,
+          name: item.name,
+          path: relativePath,
+          type: item.isDirectory() ? "folder" : "file",
+          size: item.isFile() ? fs.statSync(fullPath).size : 0,
+          extension: item.isFile() ? path.extname(item.name).toLowerCase() : "",
+          mimeType: item.isFile()
+            ? mime.lookup(item.name) || "application/octet-stream"
+            : null,
+          createdAt: fs.statSync(fullPath).birthtime,
+          modifiedAt: fs.statSync(fullPath).mtime,
+        };
 
-    // Update file details
-    file.name = name || file.name;
-    file.type = type || file.type;
-    file.path = b2Response.fileName; // Update the Backblaze B2 file name
-    file.updated_at = Date.now();
+        // For text-based files, include content
+        if (item.isFile() && isTextFile(item.name)) {
+          try {
+            node.content = fs.readFileSync(fullPath, "utf-8").toString();
+          } catch (readError) {
+            node.content = "[Binary content - cannot display]";
+          }
+        }
 
-    // Add to file history
-    file.history.push({
-      version: `v${file.history.length + 1}`,
-      changes: "File updated",
-      updatedBy: userId,
-      updatedAt: Date.now(),
+        if (item.isDirectory()) {
+          node.children = buildTree(fullPath, relativeBase);
+          node.hasChildren = node.children.length > 0;
+        }
+
+        result.push(node);
+      }
+
+      // Sort folders first, then files
+      return result.sort((a, b) => {
+        if (a.type === b.type) return a.name.localeCompare(b.name);
+        return a.type === "folder" ? -1 : 1;
+      });
+    };
+
+    const fileStructure = buildTree(userDir, userDir);
+    res.status(200).json(fileStructure);
+  } catch (error) {
+    console.error("Error getting file structure:", error);
+    res.status(500).json({
+      message: "Failed to get file structure",
+      error: error.message,
     });
-
-    await file.save();
-
-    res.status(200).json({ message: "File updated successfully", file });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error updating file", error: error.message });
   }
 };
 
-// 5. Delete a file (soft delete)
-export const deleteFile = async (req, res) => {
+const getFileContent = async (req, res) => {
+  console.log("getFileContent");
   try {
-    const fileId = req.params.id;
-    const userId = req.user._id;
+    const { id } = req.params;
+    const file = await File.findById(id);
 
-    const file = await File.findById(fileId);
-
-    if (!file) {
+    if (!file || file.isDeleted) {
       return res.status(404).json({ message: "File not found" });
     }
 
-    // Check if the user has permission to delete the file
-    if (!hasPermission(file, userId, "admin")) {
+    if (file.type !== "file") {
       return res
-        .status(403)
-        .json({ message: "You do not have permission to delete this file" });
+        .status(400)
+        .json({ message: "Requested resource is not a file" });
     }
 
-    // Delete the file from Backblaze B2
-    await deleteFromBackblaze(file.path);
+    const absolutePath = path.join(BASE_DIR, file.path);
 
-    // Soft delete the file
-    file.isDeleted = true;
-    file.deletedAt = Date.now();
-    await file.save();
+    if (!fs.existsSync(absolutePath)) {
+      // If file doesn't exist in FS but exists in DB, recreate it
+      fs.writeFileSync(absolutePath, file.content || "");
+    }
 
-    res.status(200).json({ message: "File deleted successfully", file });
+    // Read fresh content from filesystem
+    const content = fs.readFileSync(absolutePath, "utf8");
+
+    res.status(200).json({
+      ...file.toObject(),
+      content,
+    });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error deleting file", error: error.message });
+    res.status(500).json({ message: "Failed to get file content", error });
   }
 };
 
-// 6. Add a comment to a file
-export const addComment = async (req, res) => {
+const saveFile = async (req, res) => {
+  console.log("saveFile");
   try {
-    const fileId = req.params.id;
-    const userId = req.user._id;
-    const { comment } = req.body;
+    const { id } = req.params;
+    const { content } = req.body;
 
-    const file = await File.findById(fileId);
-
-    if (!file) {
-      return res.status(404).json({ message: "File not found" });
+    const file = await File.findById(id);
+    if (!file || file.isDeleted || file.type !== "file") {
+      return res.status(404).json({ message: "File not found or not a file" });
     }
 
-    // Add the comment
-    file.comments.push({ user: userId, comment, createdAt: Date.now() });
-    await file.save();
+    const absolutePath = path.join(BASE_DIR, file.path);
 
-    res.status(201).json({ message: "Comment added successfully", file });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error adding comment", error: error.message });
-  }
-};
+    // Save to filesystem immediately
+    saveFileContent(absolutePath, content);
 
-// 7. Get file details (including comments, history, etc.)
-export const getFileDetails = async (req, res) => {
-  try {
-    const fileId = req.params.id;
-    const userId = req.user._id;
-
-    const file = await File.findById(fileId).populate(
-      "sharedWith.user createdBy collaborators.user comments.user comments.replies.user"
+    // Update in database
+    const updatedFile = await File.findByIdAndUpdate(
+      id,
+      {
+        content,
+        size: Buffer.byteLength(content, "utf8"),
+        updated_at: Date.now(),
+      },
+      { new: true }
     );
 
-    if (!file) {
-      return res.status(404).json({ message: "File not found" });
-    }
-
-    // Check if the user has permission to view the file
-    if (!hasPermission(file, userId, "viewer")) {
-      return res
-        .status(403)
-        .json({ message: "You do not have permission to view this file" });
-    }
-
-    res.status(200).json({ file });
+    res.status(200).json({
+      message: "File saved successfully",
+      file: updatedFile,
+    });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error fetching file details", error: error.message });
+    res.status(500).json({ message: "Failed to save file", error });
   }
 };
 
-// 8. Restore a soft-deleted file
-export const restoreFile = async (req, res) => {
+const updateFile = async (req, res) => {
+  console.log("updateFile");
   try {
-    const fileId = req.params.id;
-    const userId = req.user._id;
+    const { id } = req.params;
+    const { name, content } = req.body;
 
-    const file = await File.findById(fileId);
+    const file = await File.findById(id);
+    if (!file || file.isDeleted) {
+      return res.status(404).json({ message: "File not found" });
+    }
+
+    const oldAbsolutePath = path.join(BASE_DIR, file.path);
+    const userDir = getUserDir(file.createdBy.toString());
+    let newPath = oldAbsolutePath;
+
+    // Handle rename if name changed
+    if (name && name !== file.name) {
+      newPath = path.join(userDir, name);
+
+      if (fs.existsSync(newPath)) {
+        return res
+          .status(400)
+          .json({ message: "A file with that name already exists" });
+      }
+
+      fs.renameSync(oldAbsolutePath, newPath);
+    }
+
+    // Handle content update for files
+    if (content !== undefined && file.type === "file") {
+      saveFileContent(newPath, content);
+    }
+
+    const updates = {
+      name: name || file.name,
+      path: path.relative(BASE_DIR, newPath),
+      updated_at: Date.now(),
+    };
+
+    if (content !== undefined && file.type === "file") {
+      updates.content = content;
+      updates.size = Buffer.byteLength(content, "utf8");
+    }
+
+    const updatedFile = await File.findByIdAndUpdate(id, updates, {
+      new: true,
+    });
+    res.status(200).json({
+      message: "File updated successfully",
+      file: updatedFile,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update file", error });
+  }
+};
+
+const deleteFile = async (req, res) => {
+  console.log("deleteFile");
+  try {
+    const { id } = req.params;
+    const file = await File.findById(id);
 
     if (!file) {
       return res.status(404).json({ message: "File not found" });
     }
 
-    // Check if the user has permission to restore the file
-    if (!hasPermission(file, userId, "admin")) {
-      return res
-        .status(403)
-        .json({ message: "You do not have permission to restore this file" });
+    const absolutePath = path.join(BASE_DIR, file.path);
+
+    // Always delete from filesystem
+    try {
+      if (file.type === "file" && fs.existsSync(absolutePath)) {
+        fs.unlinkSync(absolutePath);
+      } else if (file.type === "folder" && fs.existsSync(absolutePath)) {
+        fs.rmSync(absolutePath, { recursive: true, force: true });
+      }
+    } catch (err) {
+      console.error("Error deleting file from filesystem:", err);
     }
 
-    // Restore the file
-    file.isDeleted = false;
-    file.deletedAt = null;
-    await file.save();
+    // Delete from database
+    await File.findByIdAndDelete(id);
 
-    res.status(200).json({ message: "File restored successfully", file });
+    res.status(200).json({ message: "File deleted successfully" });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error restoring file", error: error.message });
+    res.status(500).json({ message: "Failed to delete file", error });
   }
+};
+
+const listFiles = async (req, res) => {
+  console.log("listFiles");
+  try {
+    const { project, organization } = req.query;
+    const createdBy = req.user.id.toString();
+
+    const query = { createdBy, isDeleted: false };
+    if (project) query.project = project;
+    if (organization) query.organization = organization;
+
+    const files = await File.find(query).sort({ type: 1, name: 1 });
+
+    res.status(200).json(files);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to list files", error });
+  }
+};
+
+const getFileStructure = async (req, res) => {
+  console.log("getFileStructure");
+  try {
+    const createdBy = req.user.id.toString();
+    const userDir = getUserDir(createdBy);
+
+    if (!fs.existsSync(userDir)) {
+      return res.status(200).json([]);
+    }
+
+    const buildTree = (dir) => {
+      const result = [];
+      const items = fs.readdirSync(dir, { withFileTypes: true });
+
+      for (const item of items) {
+        const fullPath = path.join(dir, item.name);
+        const relativePath = path.relative(userDir, fullPath);
+
+        const node = {
+          name: item.name,
+          path: relativePath,
+          type: item.isDirectory() ? "folder" : "file",
+          size: item.isFile() ? fs.statSync(fullPath).size : 0,
+          extension: item.isFile() ? path.extname(item.name) : "",
+        };
+
+        if (item.isDirectory()) {
+          node.children = buildTree(fullPath);
+        }
+
+        result.push(node);
+      }
+
+      return result;
+    };
+
+    const fileStructure = buildTree(userDir);
+    res.status(200).json(fileStructure);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to get file structure", error });
+  }
+};
+
+module.exports = {
+  createFile,
+  getFileContent,
+  saveFile,
+  updateFile,
+  deleteFile,
+  listFiles,
+  getFileStructure,
+  getEnhancedFileStructure,
 };
