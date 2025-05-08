@@ -4,8 +4,8 @@ const cors = require("cors");
 const http = require("http");
 const socketio = require("socket.io");
 const connectDB = require("./configuration/db_config");
-const setupPeerServer = require('./handler/peerServer'); // Correct path to your peerServer module
-const setupSignaling = require('./components/signaling');
+const peerServerSetup = require("./handlers/peerServer"); 
+const setupSignaling = require('./handlers/signaling');
 
 dotenv.config();
 
@@ -14,7 +14,7 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
 // Initialize PeerServer using your module
-const peerServer = setupPeerServer(server);
+const peerServer = peerServerSetup(server);
 
 // Socket.io Setup
 const io = socketio(server, {

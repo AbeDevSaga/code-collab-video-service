@@ -1,9 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const { createRoom, getRoomInfo } = require("../controllers/videoController");
-const auth = require("../middlewares/authMiddleware");
+const { isAuthenticated } = require("../middlewares/authMiddleware");
 
-router.post("/rooms", auth, createRoom);
-router.get("/rooms/:roomId", auth, getRoomInfo);
+router.post("/rooms", isAuthenticated, createRoom);
+router.get("/rooms/:roomId", isAuthenticated, getRoomInfo);
 
 module.exports = router;
